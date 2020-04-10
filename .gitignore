@@ -1,0 +1,6 @@
+/assets/modeling/
+/__pycache__/
+/components/__pycache__/
+.vscode/
+
+*.ipynb
