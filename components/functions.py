@@ -4,13 +4,14 @@ import pickle as pkl
 from skimage.restoration import inpaint
 from plotly.tools import mpl_to_plotly
 import plotly.express as px
+import mne
 
 def simulate_source(snr, n_sources, size):
     ''' This function takes the simulation settings and simulates a pseudo-random sample in brain and sensor space.
     settings keys: ['snr', 'n_sources', 'size']
     '''
     settings = {'amplitude': (10, 100), # amplitude range, not too important
-                'snr': int(snr),
+                'snr': float(snr),
                 'n_sources': int(n_sources),
                 'size': int(size)}
     
@@ -62,10 +63,14 @@ def simulate_source(snr, n_sources, size):
     # fig_x = plt.figure()
     # plt.imshow(x_img)
     # fig_x = mpl_to_plotly(fig_x)
-    fig_x = px.imshow(x_img)
-    return fig_x
 
-    # return y, x_img
+    fig_x = px.imshow(x_img)
+    fleft = plt.figure(1)
+    fright = plt.figure(2)
+    fleft, fright = quickplot(y, pth, [fleft, fright], del_below=0.1, title='ConvDip', background='white', views = ['lat'])
+    figs_y = []  # [fleft, fright]
+
+    return figs_y, fig_x
 
 def vec_to_sevelev_newlayout(x):
     ''' convert a vector consisting of 32 electrodes to a 7x11 matrix using 
@@ -142,3 +147,46 @@ def addNoise(x, db):
     
     
     return x_out, db_choice
+
+def quickplot(data, pth_res, fig, del_below=0.0, title='ConvDip', background='white', views = ['lat']):
+    ''' quickly plot a source '''
+    backend = 'mayavi'
+    if backend=='mayavi':
+        fig = [None, None]
+    fleft = []
+    fright = []
+    data = np.squeeze(data)
+    mask_below_thr = data < (np.max(data) * del_below)
+    data[mask_below_thr] = 0
+    # Read some dummy object to assign the voxel values to
+    if len(data) == 20484:
+        try:
+            a = mne.read_source_estimate(pth_res + "\\sourcetemplate-lh.stc")
+        except:
+            a = mne.read_source_estimate(pth_res + "/sourcetemplate-lh.stc")
+    else:
+        try:
+            a = mne.read_source_estimate(pth_res + "\\ResSourceEstimate-lh.stc")
+        except:
+            a = mne.read_source_estimate(pth_res + "/ResSourceEstimate-lh.stc")
+
+    # assign precomputed voxel values
+    for i in range(a.data.shape[1]):
+        a.data[:, i] = data
+
+    # its a template average
+    a.subject = "fsaverage"
+    # Use stc-object plot function
+    clim = {'kind': 'percent',
+            'lims': (20, 50, 100)
+            }
+    
+    
+    figlist = []
+
+    for view in views:
+        fleft[view] = a.plot(hemi='lh', initial_time=0.5, surface="white", backend=backend, title=title+'_lh' , clim=clim, transparent=True, views=view, background=background, foreground='black', verbose=False)
+        fright[view] = a.plot(hemi='rh', initial_time=0.5, surface="white", backend=backend, title=title+'_rh' , clim=clim, transparent=True, views=view, background=background, foreground='black', verbose=False)
+
+
+    return fleft, fright

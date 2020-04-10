@@ -48,7 +48,7 @@ layout_convdip_page =  html.Div([
             html.Div([
             html.H6(["Advanced Options"], style={'marginTop':15}),
             html.Label('Signal to Noise Ratio (in dB):'),
-            dcc.Input(id='noise_level_input', placeholder='6'),
+            dcc.Input(id='noise_level_input', value=6),
             html.Br(),
             ]),
             html.Div([
@@ -71,7 +71,7 @@ layout_convdip_page =  html.Div([
         ], style={'width': '12%'}),
         html.Div([
             html.Label('Size of sources (mm):'),
-            dcc.Input(id='size_of_source_input', placeholder='35'),
+            dcc.Input(id='size_of_source_input', value=35),
             html.Br(),
         ]),
         html.Div([
@@ -124,7 +124,7 @@ def simulate_sample(*params):
     if np.any(settings==None):
         return
     # y, x = simulate_source(*settings[1:])
-    fig_x = simulate_source(*settings[1:])
+    figs_y, fig_x = simulate_source(*settings[1:])
 
     # fig = example_plot()
     return fig_x
