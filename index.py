@@ -1,5 +1,6 @@
 import dash_core_components as dcc
 import dash_html_components as html
+import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 
 # see https://community.plot.ly/t/nolayoutexception-on-deployment-of-multi-page-dash-app-example-code/12463/2?u=dcomfort
@@ -7,6 +8,12 @@ from app import server
 from app import app
 from layouts import layout_convdip_page
 import callbacks
+
+import dash
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', dbc.themes.BOOTSTRAP]
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets, url_base_pathname='/')
+server = app.server
+app.config.suppress_callback_exceptions = True
 
 # see https://dash.plot.ly/external-resources to alter header, footer and favicon
 app.index_string = ''' 
@@ -42,7 +49,6 @@ app.layout = html.Div([
 def display_page(pathname):
     if pathname == '/convdip':
         return layout_convdip_page
-
 
 # # # # # # # # #
 external_css = ["https://cdnjs.cloudflare.com/ajax/libs/normalize/7.0.0/normalize.min.css",
