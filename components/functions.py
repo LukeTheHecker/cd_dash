@@ -5,22 +5,35 @@ from skimage.restoration import inpaint
 from plotly.tools import mpl_to_plotly
 import plotly.express as px
 import mne
+import matplotlib
+import plotly.figure_factory as FF
+FF.create_trisurf
 
 def simulate_source(snr, n_sources, size):
     ''' This function takes the simulation settings and simulates a pseudo-random sample in brain and sensor space.
     settings keys: ['snr', 'n_sources', 'size']
     '''
+
+    matplotlib.use('Agg')
+
     settings = {'amplitude': (10, 100), # amplitude range, not too important
                 'snr': float(snr),
                 'n_sources': int(n_sources),
                 'size': int(size)}
+    # print(f'simulating {n_sources} sources of {size} mm diameter and an snr of {snr}')
     
-    #Load basic Files
+    # Load basic Files
     pth = "C:\\Users\\Lukas\\Documents\\cd_dash\\assets\\modeling\\"
+    ## Leadfield
     with open(pth+'leadfield.pkl', 'rb') as f:
         leadfield = pkl.load(f)[0]
+    ## Positions
     with open(pth+'pos.pkl', 'rb') as f:
         pos = pkl.load(f)[0]
+    ## Inverse operator, needed to get the triangle-information in the plotting
+    fname_inv = pth + 'inverse-inv.fif'
+    inverse_operator = mne.minimum_norm.read_inverse_operator(fname_inv)
+    tris = inverse_operator['src'][0]['use_tris']
 
     # Generate a source configuration based on settings
     y = np.zeros((leadfield.shape[1],))
@@ -53,24 +66,25 @@ def simulate_source(snr, n_sources, size):
     if np.sum(settings['snr']) == 0:
         x_noise = x
     else:
-        x_noise, _ = addNoise(x, settings['snr'])
+        x_noise, snr = addNoise(x, settings['snr'])
     # CAR
     x_noise -= np.mean(x_noise)
     x_img = vec_to_sevelev_newlayout(x_noise)
     # Scale img
-    x_img -= np.max(np.abs(x_img))
+    x_img /= np.max(np.abs(x_img))
     
     # fig_x = plt.figure()
     # plt.imshow(x_img)
     # fig_x = mpl_to_plotly(fig_x)
 
     fig_x = px.imshow(x_img)
-    fleft = plt.figure(1)
-    fright = plt.figure(2)
-    fleft, fright = quickplot(y, pth, [fleft, fright], del_below=0.1, title='ConvDip', background='white', views = ['lat'])
-    figs_y = []  # [fleft, fright]
 
-    return figs_y, fig_x
+    fig_y, _ = brain_plotly(tris, pos, y)
+    # print(f'simulating {n_sources} sources of {src_diams} mm diameter and an snr of {snr}')
+    # print(f'source center(s): {pos[src_centers, :]}')
+
+    return fig_y, fig_x
+    # return stc
 
 def vec_to_sevelev_newlayout(x):
     ''' convert a vector consisting of 32 electrodes to a 7x11 matrix using 
@@ -148,8 +162,40 @@ def addNoise(x, db):
     
     return x_out, db_choice
 
+def brain_plotly(tris, pos, y):
+    ''' takes triangulated mesh, list of coordinates and a vector of brain activity and plots a plotly triangulated surface '''
+
+    # Concatenate tris so that it covers the whole brain
+    tmp = tris + int(pos.shape[0]/2)
+    new_tris = np.concatenate([tris, tmp], axis=0)
+    # Calculate the true value for each triangle (which is the mean of the triangle's vertices)
+    colors = []
+    for tri in new_tris:
+        positions = pos[tri, :]
+        indices = []
+        for j in positions:
+            indices.append(np.where((pos == j).all(axis=1))[0][0])
+        colors.append(np.mean(y[indices]))
+
+
+    # scale y
+    y /= np.max(y)
+
+    x = pos[:, 0]
+    y = pos[:, 1]
+    z = pos[:, 2]
+    ## Plot
+    fig1 = FF.create_trisurf(x=x, y=y, z=z,
+                            simplices=new_tris,
+                            title="Simulated brain activity",
+                            color_func=colors,
+                            aspectratio=dict(x=1, y=1, z=1)
+                            )
+    return fig1, colors
+
+
 def quickplot(data, pth_res, fig, del_below=0.0, title='ConvDip', background='white', views = ['lat']):
-    ''' quickly plot a source '''
+    ''' quickly plot a source: not used for the convdip webapp '''
     backend = 'mayavi'
     if backend=='mayavi':
         fig = [None, None]
@@ -181,12 +227,9 @@ def quickplot(data, pth_res, fig, del_below=0.0, title='ConvDip', background='wh
             'lims': (20, 50, 100)
             }
     
-    
-    figlist = []
-
     for view in views:
-        fleft[view] = a.plot(hemi='lh', initial_time=0.5, surface="white", backend=backend, title=title+'_lh' , clim=clim, transparent=True, views=view, background=background, foreground='black', verbose=False)
-        fright[view] = a.plot(hemi='rh', initial_time=0.5, surface="white", backend=backend, title=title+'_rh' , clim=clim, transparent=True, views=view, background=background, foreground='black', verbose=False)
+        fleft.append(a.plot(hemi='lh', initial_time=0.5, surface="white", backend=backend, title=title+'_lh' , clim=clim, transparent=True, views=view, background=background, foreground='black', verbose=False, colorbar=False))
+        fright.append(a.plot(hemi='rh', initial_time=0.5, surface="white", backend=backend, title=title+'_rh' , clim=clim, transparent=True, views=view, background=background, foreground='black', verbose=False, colorbar=False))
 
-
+    # return a
     return fleft, fright

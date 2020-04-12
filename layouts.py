@@ -15,6 +15,8 @@ from plotly.tools import mpl_to_plotly
 import dash_core_components as dcc
 import matplotlib.pyplot as plt
 
+from dash_obj_in_3dmesh import geometry_tools, wav_obj
+
 def example_plot():
     x = np.random.randn(100)
     fig = plt.figure()
@@ -22,6 +24,30 @@ def example_plot():
     plotly_fig = mpl_to_plotly(fig)
     # graph = dcc.Graph(id='myGraph', fig=plotly_fig)
     return plotly_fig
+
+############################### REMOVE ME LATER MAYBE
+axis_template = {
+    "showbackground": False,
+    "visible" : False
+}
+
+plot_layout = {
+    "title": "",
+    "margin": {"t": 0, "b": 0, "l": 0, "r": 0},
+    "font": {"size": 12, "color": "white"},
+    "showlegend": False,
+    'uirevision':'same_all_the_time', #this keeps camera position etc the same when data changes.
+    "scene": {
+        "xaxis": axis_template,
+        "yaxis": axis_template,
+        "zaxis": axis_template,
+        "aspectmode" : "data",
+        "camera": {"eye": {"x": 1.25, "y": 1.25, "z": 1.25}},
+        "annotations": [],
+    },
+}
+###############################
+
 
 ######################## START ConvDip Layout ########################
 layout_convdip_page =  html.Div([
@@ -82,13 +108,24 @@ layout_convdip_page =  html.Div([
         html.Div([
             html.Br(),
             dcc.Graph(
-                id='sim_plot_graphs',
+                id='sim_scalp_plot',
                 config={
                     'displayModeBar': False
                 },
                 figure={
                     'data': [],
                 }
+            )
+
+        ]),
+        # Simulation Canvas 2
+        html.Div([
+            html.Br(),
+            dcc.Graph(
+                id="sim_source_plot",
+                figure={
+                    "data": [],
+                },
             )
 
         ])
@@ -105,11 +142,13 @@ layout_convdip_page =  html.Div([
 # Output('output_container_button', 'children'),
 # Output('sim_plot_graphs', 'figure'), 
 @app.callback(
-        Output('sim_plot_graphs', 'figure'), 
+        [Output('sim_scalp_plot', 'figure'),
+        Output('sim_source_plot', 'figure')], 
         [Input('sim_button', 'n_clicks')],
         [State('noise_level_input', 'value'), 
         State('number_of_sources_input', 'value'),
         State('size_of_source_input', 'value'),
+        State('sim_source_plot', 'figure')
         ])
 
 def simulate_sample(*params):
@@ -117,9 +156,12 @@ def simulate_sample(*params):
     if np.any(settings==None):
         return
     # y, x = simulate_source(*settings[1:])
-    figs_y, fig_x = simulate_source(*settings[1:])
+    fig_y, fig_x = simulate_source(settings[1], settings[2], settings[3])
+    # print(f'fig={settings[4]}')
+    # if settings[4]['data']  == []:
+    #     return fig_x, fig_y
+    # else:
+    return fig_x, fig_y
 
-    # fig = example_plot()
-    return fig_x
     # return f'settings: {[param for param in params]}'
      
