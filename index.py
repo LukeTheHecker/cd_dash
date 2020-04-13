@@ -9,11 +9,6 @@ from app import app
 from layouts import layout_convdip_page
 import callbacks
 
-import dash
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css', dbc.themes.BOOTSTRAP]
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets, url_base_pathname='/')
-server = app.server
-app.config.suppress_callback_exceptions = True
 
 # see https://dash.plot.ly/external-resources to alter header, footer and favicon
 app.index_string = ''' 
@@ -21,7 +16,7 @@ app.index_string = '''
 <html>
     <head>
         {%metas%}
-        <title>CC Performance Marketing Report</title>
+        <title>CC ConvDip</title>
         {%favicon%}
         {%css%}
     </head>
