@@ -138,7 +138,7 @@ typed-ast==1.4.1
 typing-extensions==3.7.4.2
 ua-parser==0.10.0
 urllib3==1.25.8
-vtk===-PKG-VERSION
+vtk==8.1.2 
 wcwidth==0.1.9
 webencodings==0.5.1
 Werkzeug==1.0.1
