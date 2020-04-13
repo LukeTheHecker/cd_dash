@@ -11,6 +11,7 @@ import mne
 import matplotlib
 import plotly.figure_factory as FF
 import time
+import os
 from numba import njit
 from joblib import Parallel, delayed
 import ast
@@ -37,12 +38,12 @@ def simulate_source(snr, n_sources, size, n):
     print(f'snr={type(snr)}, n_sources={type(n_sources)}, size={type(size)}, n={type(n)}')
 
     # Load basic Files
-    pth = "C:\\Users\\Lukas\\Documents\\cd_dash\\assets\\modeling\\"
+    pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling'))
     ## Leadfield
-    with open(pth+'leadfield.pkl', 'rb') as f:
+    with open(pth+'\\leadfield.pkl', 'rb') as f:
         leadfield = pkl.load(f)[0]
     ## Positions
-    with open(pth+'pos.pkl', 'rb') as f:
+    with open(pth+'\\pos.pkl', 'rb') as f:
         pos = pkl.load(f)[0]
     
 
@@ -122,18 +123,18 @@ def make_fig_objects(y, x_img):
     return fig_y, fig_x
 
 def predict_source(x, pth_model='\\model_paper\\'):
-    pth = 'C:\\Users\\Lukas\\Documents\\cd_dash\\assets\\modeling\\'
+    pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling\\'))
     my_devices = tf.config.experimental.list_physical_devices(device_type='CPU')
     tf.config.experimental.set_visible_devices(devices= my_devices, device_type='CPU')
     # load some stuff
     ## Leadfield
-    with open(pth+'leadfield.pkl', 'rb') as f:
+    with open(pth+'\\leadfield.pkl', 'rb') as f:
         leadfield = pkl.load(f)[0]
     ## Positions
-    with open(pth+'pos.pkl', 'rb') as f:
+    with open(pth+'\\pos.pkl', 'rb') as f:
         pos = pkl.load(f)[0]
     ## Inverse operator, needed to get the triangle-information in the plotting
-    fname_inv = pth + 'inverse-inv.fif'
+    fname_inv = pth + '\\inverse-inv.fif'
     inverse_operator = mne.minimum_norm.read_inverse_operator(fname_inv)
     tris = inverse_operator['src'][0]['use_tris']
 
@@ -142,6 +143,7 @@ def predict_source(x, pth_model='\\model_paper\\'):
     print('###LOADING MODEL###')
     print('###LOADING MODEL###')
     print('###LOADING MODEL###')
+
     json_file = open(pth + pth_model + 'model.json', 'r')
     loaded_model_json = json_file.read()
     json_file.close()
