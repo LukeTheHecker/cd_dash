@@ -1,6 +1,8 @@
 import dash
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets, url_base_pathname='/')
+import dash_bootstrap_components as dbc
+
+external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css',dbc.themes.BOOTSTRAP]
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets, url_base_pathname='/')#
 server = app.server
 app.config.suppress_callback_exceptions = True
 # import dash_auth
