@@ -15,7 +15,6 @@ from numba import njit
 from joblib import Parallel, delayed
 import ast
 
-FF.create_trisurf
 
 def simulate_source(snr, n_sources, size, n):
     ''' This function takes the simulation settings and simulates a pseudo-random sample in brain and sensor space.

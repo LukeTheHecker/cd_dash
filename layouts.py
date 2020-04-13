@@ -27,7 +27,6 @@ def example_plot():
 
 
 
-
 ######################## START ConvDip Layout ########################
 layout_convdip_page =  html.Div([
     html.Div([
