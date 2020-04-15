@@ -3,27 +3,43 @@ import dash_html_components as html
 import dash_bootstrap_components as dbc
 import dash_table
 from dash.dependencies import Input, Output, State
-from components import Header
-from components.functions import simulate_source, predict_source, make_fig_objects
+from plotly.tools import mpl_to_plotly
+import dash_core_components as dcc
+
+import numpy as np
 from datetime import datetime as dt
 from datetime import date, timedelta
 import pandas as pd
 from app import app
+import mne
+import os
+import pickle as pkl
+import time
 
-import numpy as np
-from plotly.tools import mpl_to_plotly
-import dash_core_components as dcc
-import matplotlib.pyplot as plt
+from components import Header
+from components.functions import simulate_source, predict_source, make_fig_objects, load_model, inverse_solution
 
-from dash_obj_in_3dmesh import geometry_tools, wav_obj
+print('Loading Some Variables')
+# Load Global variables
+pth_modeling = os.path.abspath(os.path.join(os.path.dirname( __file__ ), 'assets\\modeling'))
+# Load Triangles through some inverse operator created previously
+fname_inv = pth_modeling + '\\inverse-inv.fif'
+tris = mne.minimum_norm.read_inverse_operator(fname_inv)['src'][0]['use_tris']
+# Load Forward Model for other inverse solutions:
+fwd = mne.read_forward_solution(pth_modeling + '\\fsaverage-fwd.fif')
+# Load generic Epochs structure for other inverse solutions:
+epochs = mne.read_epochs(pth_modeling + '\\epochs-epo.fif')
+## Leadfield
+with open(pth_modeling +'\\leadfield.pkl', 'rb') as f:
+    leadfield = pkl.load(f)[0]
+## Positions
+with open(pth_modeling +'\\pos.pkl', 'rb') as f:
+    pos = pkl.load(f)[0]
 
-def example_plot():
-    x = np.random.randn(100)
-    fig = plt.figure()
-    plt.hist(x)
-    plotly_fig = mpl_to_plotly(fig)
-    # graph = dcc.Graph(id='myGraph', fig=plotly_fig)
-    return plotly_fig
+print('Preloading Models')
+model_paper = load_model(pth_modeling + '\\model_paper\\')
+model_flex = load_model(pth_modeling + '\\model_flex\\')
+model_lowsnr = load_model(pth_modeling + '\\model_lowsnr\\')
 
 
 
@@ -36,6 +52,12 @@ layout_convdip_page =  html.Div([
         html.Div([
           html.Center(html.H1(["ConvDip"], className="gs-header gs-text-header padded",style={'marginTop': 15}))
           ]),
+        # Hidden divs: 
+        # stores the simulated source vector y
+        html.Div(id='current_y', style={'display': 'none'}),
+        # stores the selected SNR in dB
+        html.Div(id='current_snr', style={'display': 'none'}),
+
         # Abstract
         dbc.Card(
             dbc.CardBody([
@@ -47,27 +69,30 @@ layout_convdip_page =  html.Div([
         # Image
         html.Div([html.Img(src='/assets/architecture.png', height=300)], style={'display': 'inline-block', 'margin': '10px'}),
 
-        dbc.CardGroup([
+        dbc.Row(
             # Simulation Panel
             dbc.Card([
                 dbc.CardBody([
                     html.Div([
-                        html.H6(["Advanced Options"], style={'marginTop':15}),
+                        html.H4(["Advanced Options"], style={'marginTop':15}),
                         html.Br(),
                         html.Label('Signal to Noise Ratio (in dB):'),
-                        dcc.Input(id='noise_level_input', value=6),
+                        dcc.Markdown('''*e.g. single value: 6 or range of values: 6, 9 (comma separated)*'''),
+                        dbc.Input(id='noise_level_input', value=6),
                         html.Br(),
                         ]),
                     html.Div([
                         html.Br(),
                         html.Label('Number of sources:'),
-                        dcc.Input(id='number_of_sources_input', value=3),
+                        dcc.Markdown('''*e.g. single value: 3 or range of values: 1, 5 (comma separated)*'''),
+                        dbc.Input(id='number_of_sources_input', value=3),
                         html.Br(),
                     ]),
                 html.Div([
                     html.Br(),
-                    html.Label('Size of sources (mm):'),
-                    dcc.Input(id='size_of_source_input', value=35),
+                    html.Label('Size of sources (diameter of sphere in mm):'),
+                    dcc.Markdown('''*e.g. single value: 35 or range of values: 25, 35 (comma separated)*'''),
+                    dbc.Input(id='size_of_source_input', value=35),
                     html.Br(),
                     ]),
                 html.Div([
@@ -109,19 +134,24 @@ layout_convdip_page =  html.Div([
                         ),
                     ])
                 )
-    ]),  # end of simulation group
+    ),  # end of simulation row
 
         # Prediction Group
         dbc.CardGroup([
             dbc.Card(
                 dbc.CardBody([
-                    dbc.RadioItems(
+                    dbc.Select(
                         id='model_selection',
                         options=[
-                            {'label': 'ConvDip Paper Version', 'value': 'paper'},
-                            {'label': 'ConvDip for low SNR', 'value': 'lowsnr'},
+                            {'label': 'ConvDip Flexible: Trained on a wide range of SNR from 0 to 8 dB with 1 to 5 sources each between 25 and 35 mm spheric diameter.', 'value': 'flex'},
+                            {'label': 'ConvDip Paper Version: Trained on a narrow range of SNR from 6 to 9 dB with 1 to 5 sources each between 25 and 35 mm spheric diameter.', 'value': 'paper'},
+                            {'label': 'ConvDip for low SNR: Trained on a narrow range of SNR from 3 to 6 dB with 1 to 5 sources each between 25 and 35 mm spheric diameter.', 'value': 'lowsnr'},
+                            {'label': 'eLORETA', 'value': 'eLORETA'},
+                            {'label': 'LCMV Beamforming', 'value': 'lcmv'},
+                            {'label': 'Minimum Norm Estimate', 'value': 'MNE'},
+                            {'label': 'dSPM', 'value': 'dSPM'},
                         ],
-                        value='paper'
+                        value='flex'
                         ),
                     html.Br(),
                     dbc.Button('Predict Source', id='predict_button', color="primary"),
@@ -167,7 +197,9 @@ layout_convdip_page =  html.Div([
 @app.callback(
         [Output('loading-output-simulation', 'children'),
         Output('sim_scalp_plot', 'figure'),
-        Output('sim_source_plot', 'figure')], 
+        Output('sim_source_plot', 'figure'),
+        Output('current_y', 'children'),
+        Output('current_snr', 'children')], 
         [Input('sim_button', 'n_clicks')],
         [State('noise_level_input', 'value'), 
         State('number_of_sources_input', 'value'),
@@ -184,12 +216,16 @@ def simulate_sample(*params):
     print(settings[3])
     print(settings[3])
     print(settings[3])
-    y, x_img = simulate_source(settings[1], settings[2], settings[3], 1)
-    fig_y, fig_x = make_fig_objects(y, x_img)
+    start = time.time()
+    y, x_img, db_choice = simulate_source(settings[1], settings[2], settings[3], 1, leadfield, pos)
+    end_1 = time.time()
+    fig_y, fig_x = make_fig_objects(y, x_img, tris, pos)
+    end_2 = time.time()
+    print(f'Simulation: {end_1-start}, simulation+plotting: {end_2-start}')
     # fig_y, fig_x = simulate_source(settings[1], settings[2], settings[3])
 
     spinner_output = 'Simulation is Ready'
-    return spinner_output, fig_x, fig_y
+    return spinner_output, fig_x, fig_y, y, db_choice
 
 # Callback for the Predict button
 @app.callback(
@@ -198,24 +234,48 @@ def simulate_sample(*params):
         Output('pred_source_plot', 'figure')], 
         [Input('predict_button', 'n_clicks')],
         [State('sim_scalp_plot', 'figure'),
-        State('model_selection', 'value')]
+        State('model_selection', 'value'),
+        State('current_y', 'children'),
+        State('current_snr', 'children')]
         ) 
 
 def predict_sample(*params):
     inputs = [i for i in params]
+    # Check if sample was simulated already
     if inputs[1]['data'] == []:
         print('No sample simulated or at least its not plotted')
         spinner_output = 'No simulation available.'
         return spinner_output, None, None
-    else:
-        if inputs[2] == 'paper':
-            pth_model = '\\model_paper\\'
-        elif inputs[2] == 'lowsnr':
-            pth_model = '\\model_lowsnr\\'
+    
+    # Check if hidden html.Div has source value
+    try:
+        y = np.asarray(inputs[3])
+        db = np.asarray(inputs[4])[0]
+        print(f'y.shape={y.shape}\ndb.shape={db.shape}')
+        print(f'db={db}')
+    except:
+        spinner_output = 'No simulation available.'
+        return spinner_output, None, None
 
-        data = inputs[1]['data'][0]['z']
-        data = np.asarray(data)
-        y, x_img = predict_source(data, pth_model)
-        fig_y, fig_x = make_fig_objects(y, x_img)
-        spinner_output = 'Prediction ready!'
-        return spinner_output, fig_x, fig_y
+    data = inputs[1]['data'][0]['z']
+    data = np.asarray(data)
+
+    if inputs[2] == 'paper':
+        model = model_paper
+        y, x_img = predict_source(data, leadfield, model)
+    elif inputs[2] == 'lowsnr':
+        model = model_lowsnr
+        y, x_img = predict_source(data, leadfield, model)
+    elif inputs[2] == 'flex':
+        model = model_flex
+        y, x_img = predict_source(data, leadfield, model)
+    elif inputs[2] == 'eLORETA' or inputs[2] == 'lcmv' or inputs[2] == 'MNE' or inputs[2] == 'dSPM' or inputs[2] == 'mxne':
+        x = np.sum(y * leadfield, axis=1)
+        y, x_img = inverse_solution(x, db, epochs, fwd, leadfield, inputs[2])
+
+    
+
+    fig_y, fig_x = make_fig_objects(y, x_img, tris, pos)
+
+    spinner_output = 'Prediction ready!'
+    return spinner_output, fig_x, fig_y

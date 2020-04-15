@@ -8,6 +8,7 @@ from skimage.restoration import inpaint
 from plotly.tools import mpl_to_plotly
 import plotly.express as px
 import mne
+from mne.inverse_sparse import mixed_norm, make_stc_from_dipoles
 import matplotlib
 import plotly.figure_factory as FF
 import time
@@ -17,7 +18,7 @@ from joblib import Parallel, delayed
 import ast
 
 
-def simulate_source(snr, n_sources, size, n):
+def simulate_source(snr, n_sources, size, n, leadfield, pos):
     ''' This function takes the simulation settings and simulates a pseudo-random sample in brain and sensor space.
     settings keys: ['snr', 'n_sources', 'size']
     '''
@@ -38,13 +39,13 @@ def simulate_source(snr, n_sources, size, n):
     print(f'snr={type(snr)}, n_sources={type(n_sources)}, size={type(size)}, n={type(n)}')
 
     # Load basic Files
-    pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling'))
-    ## Leadfield
-    with open(pth+'\\leadfield.pkl', 'rb') as f:
-        leadfield = pkl.load(f)[0]
-    ## Positions
-    with open(pth+'\\pos.pkl', 'rb') as f:
-        pos = pkl.load(f)[0]
+    # pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling'))
+    # ## Leadfield
+    # with open(pth+'\\leadfield.pkl', 'rb') as f:
+    #     leadfield = pkl.load(f)[0]
+    # ## Positions
+    # with open(pth+'\\pos.pkl', 'rb') as f:
+    #     pos = pkl.load(f)[0]
     
 
     # Generate a source configuration based on settings
@@ -89,7 +90,7 @@ def simulate_source(snr, n_sources, size, n):
 
     # x_img = np.stack([vec_to_sevelev_newlayout(i) for i in x_noise], axis=0)
         
-    return np.squeeze(y), np.squeeze(x_img)
+    return np.squeeze(y), np.squeeze(x_img), db_choice
 
 # @njit(nopython=True, fastmath=False, parallel=True)
 def source_to_ximg(y, leadfield, n, db_choice):
@@ -113,44 +114,44 @@ def source_to_ximg(y, leadfield, n, db_choice):
         x_noise[s,] = x_noise[s,] - (np.sum(x_noise[s,]) / len(x_noise[s,]))
     return x_noise
 
-def make_fig_objects(y, x_img):
+def make_fig_objects(y, x_img, tris, pos):
     # Scale vectors
     x_img /= np.max(np.abs(x_img))
     y /= np.max(np.abs(y))
 
     fig_x = px.imshow(x_img)
-    fig_y, _ = brain_plotly(y)
+    fig_y, _ = brain_plotly(y, tris, pos)
     return fig_y, fig_x
 
-def predict_source(x, pth_model='\\model_paper\\'):
-    pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling\\'))
+def load_model(pth):
     my_devices = tf.config.experimental.list_physical_devices(device_type='CPU')
     tf.config.experimental.set_visible_devices(devices= my_devices, device_type='CPU')
+
+    json_file = open(pth + 'model.json', 'r')
+    loaded_model_json = json_file.read()
+    json_file.close()
+    model = tf.keras.models.model_from_json(loaded_model_json)
+    # load weights into new model
+    model.load_weights(pth + "model.h5")
+    print("Loaded model from disk")
+
+    return model
+
+def predict_source(x, leadfield, model):
+    # pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling\\'))
     # load some stuff
     ## Leadfield
-    with open(pth+'\\leadfield.pkl', 'rb') as f:
-        leadfield = pkl.load(f)[0]
-    ## Positions
-    with open(pth+'\\pos.pkl', 'rb') as f:
-        pos = pkl.load(f)[0]
-    ## Inverse operator, needed to get the triangle-information in the plotting
-    fname_inv = pth + '\\inverse-inv.fif'
-    inverse_operator = mne.minimum_norm.read_inverse_operator(fname_inv)
-    tris = inverse_operator['src'][0]['use_tris']
+    # with open(pth+'\\leadfield.pkl', 'rb') as f:
+    #     leadfield = pkl.load(f)[0]
 
-
+    print('model#########model#########model#########')
+    print(model)
     # Load Model
     print('###LOADING MODEL###')
     print('###LOADING MODEL###')
     print('###LOADING MODEL###')
 
-    json_file = open(pth + pth_model + 'model.json', 'r')
-    loaded_model_json = json_file.read()
-    json_file.close()
-    model = tf.keras.models.model_from_json(loaded_model_json)
-    # load weights into new model
-    model.load_weights(pth + pth_model + "model.h5")
-    print("Loaded model from disk")
+    # model = load_model(pth)
 
     # Predict
     if len(x.shape) == 2:
@@ -166,6 +167,115 @@ def predict_source(x, pth_model='\\model_paper\\'):
     x_img = vec_to_sevelev_newlayout(x)
 
     return y, x_img
+
+def inverse_solution(x, SNR, epochs, fwd, leadfield, method):
+    ''' Calculate some inverse solutions as implemented in MNE Python '''
+    source = np.zeros((5124, ))
+    n_tr = 100
+    n_elec = len(x)
+    # CAR
+    x -= np.mean(x)
+    # Scale
+    x /= np.max(np.abs(x))
+    # Calculate RMS
+    rms = np.sqrt(np.mean(x**2))
+
+    snr_erp = np.clip(db_conv(SNR), 1e-10, None)  # convert SNR from dB to relative
+    relnoise_st = (1 * np.sqrt(n_tr)) / snr_erp    # calculate single-trial SNR based on desired ERP-SNR given the number of trials (n_tr)
+    evoked = epochs.average()
+
+    print(f'rms = {rms}\nnoise = {SNR}dB\nsnr_erp = {snr_erp}\nrelnoise_st = {relnoise_st}')
+
+    # Noise covariance
+    #---------------------------------------------------------------------#
+    ''' Create real epoch with real noise, baseline correction and some timeline with active source '''
+    # Create empty epochs structure
+    
+    info = mne.create_info(evoked.ch_names, 1000, ch_types='eeg')
+    data = np.random.randn(n_tr, n_elec, 400) * relnoise_st * rms
+    # CAR noise section
+    for i in range(n_tr):
+        for j in range(0, 200):
+            data[i, :, j] -= np.mean(data[i, :, j])
+    # noise + signal section
+    for i in range(n_tr):
+        for j in range(200, 400):
+            data[i, :, j] += x
+            data[i, :, j] -= np.mean(data[i, :, j])    
+    
+    epochs = mne.EpochsArray(data, info, events=None, tmin=-0.200, event_id=None, reject=None, flat=None, reject_tmin=None, reject_tmax=None, baseline=None, proj=True, on_missing='error', metadata=None, selection=None, verbose=None)
+
+    epochs.set_eeg_reference(ref_channels='average')
+    # montage = mne.channels.read_montage(kind='standard_1020', ch_names=epochs.ch_names,
+    #                                     transform=False)
+    # montage = mne.make_standard_montage('standard_1020')
+
+    epochs.set_montage('standard_1020')
+    
+    epochs.apply_baseline(baseline=(-0.200, 0))
+
+    # breakpoint()
+    noise_cov = mne.compute_covariance(epochs, tmin=-0.200, tmax=0.0,
+                            method='auto')
+
+    data_cov = mne.compute_covariance(epochs, tmin=0.05, tmax=0.199,
+                            method='auto')
+    
+    evoked = epochs.average()
+
+    for i in range(400):
+        evoked.data[:, i] -= np.mean(evoked.data[:, i])
+    
+    # evoked_no_ref, _ = mne.set_eeg_reference(evoked, [])
+    
+    evoked.set_eeg_reference(ref_channels='average', projection=True)
+    lambda2 = 1. / SNR**2   # https://mne.tools/0.16/auto_tutorials/plot_mne_dspm_source_localization.html
+    if method == 'lcmv':
+        
+        filters = mne.beamformer.make_lcmv(evoked.info, fwd, data_cov, reg=0.05,
+                    noise_cov=noise_cov, weight_norm='nai')
+        stc = mne.beamformer.apply_lcmv(evoked, filters)
+        source = np.mean(stc.data[:, 200:], axis=1)
+
+    elif method == 'mxne':
+        # raise NameError('No name error, but mxne is not properly implemented yet :)')
+        inverse_operator = mne.minimum_norm.make_inverse_operator(evoked.info, fwd, noise_cov,
+                                        depth=0.9, fixed=True,
+                                        use_cps=True)
+
+        stc_dspm = mne.minimum_norm.apply_inverse(evoked, inverse_operator, lambda2=lambda2,
+                        method='dSPM')
+
+        # Compute MxNE inverse solution with dipole output
+        dipoles, residual = mixed_norm(
+            evoked, fwd, noise_cov, 55, loose=0.2, depth=0.9, maxit=3000,
+            tol=1e-4, active_set_size=10, debias=True, weights=stc_dspm,
+            weights_min=8., n_mxne_iter=10, return_residual=True,
+            return_as_dipoles=True)
+        
+        stc = make_stc_from_dipoles(dipoles, fwd['src'])
+        source = stc.data[:, -1]
+        # source = dipoles.data[:, -1]
+
+        print(f'mxne source = {source}, dipoles={dipoles}')
+        print(f'mxne dipoles = {dipoles}')
+        print(f'mxne source = {source}')
+        # breakpoint()
+    else:
+        # minimum-norm-based solutions
+        print(f'epochs.info: {epochs.info}')
+        inv = mne.minimum_norm.make_inverse_operator(epochs.info, fwd, noise_cov, fixed=True, verbose=False)
+        stc = np.abs(mne.minimum_norm.apply_inverse(evoked, inv, lambda2=lambda2, method=method, verbose=False))
+        source = stc.data[:, -1]
+        # breakpoint()
+
+    x = np.sum(source * leadfield, axis=1)
+    x_img = vec_to_sevelev_newlayout(x)
+    return source, x_img
+
+def db_conv(db):
+    # Converts dB to relative
+    return (10**(db / 10))
 
 def str2num(mystr):
     if len(mystr) == 1:
@@ -268,17 +378,17 @@ def addNoise(x, db):
     
     return x_out, db_choice
 
-def brain_plotly(y):
+def brain_plotly(y, tris, pos):
     ''' takes triangulated mesh, list of coordinates and a vector of brain activity and plots a plotly triangulated surface '''
-    pth = "C:\\Users\\Lukas\\Documents\\cd_dash\\assets\\modeling\\"
+    # pth = "C:\\Users\\Lukas\\Documents\\cd_dash\\assets\\modeling\\"
     ## Positions
-    with open(pth+'pos.pkl', 'rb') as f:
-        pos = pkl.load(f)[0]
+    # with open(pth+'pos.pkl', 'rb') as f:
+    #     pos = pkl.load(f)[0]
 
     ## Inverse operator, needed to get the triangle-information in the plotting
-    fname_inv = pth + 'inverse-inv.fif'
-    inverse_operator = mne.minimum_norm.read_inverse_operator(fname_inv)
-    tris = inverse_operator['src'][0]['use_tris']
+    # fname_inv = pth + 'inverse-inv.fif'
+    # inverse_operator = mne.minimum_norm.read_inverse_operator(fname_inv)
+    # tris = inverse_operator['src'][0]['use_tris']
     
 
     # Concatenate tris so that it covers the whole brain
