@@ -40,6 +40,7 @@ print('Preloading Models')
 model_paper = load_model(pth_modeling + '\\model_paper\\')
 model_flex = load_model(pth_modeling + '\\model_flex\\')
 model_lowsnr = load_model(pth_modeling + '\\model_lowsnr\\')
+model_gaussian = load_model(pth_modeling + '\\model_gaussian\\')
 
 
 
@@ -50,7 +51,10 @@ layout_convdip_page =  html.Div([
         Header(),
         # Header Bar
         html.Div([
-          html.Center(html.H1(["ConvDip"], className="gs-header gs-text-header padded",style={'marginTop': 15}))
+          html.Center(html.H1(["ConvDip: A convolutional neural network for better M/EEG Source Imaging"], style={'marginTop': 15})),  #, className="gs-header gs-text-header padded",style={'marginTop': 15}));
+          html.Br(),
+          html.Center(html.H4(["Hecker, Lukas; Rupprecht, Rebekka; Tebartz van Elst, Ludger; Kornmeier, Juergen"], style={'marginTop': 15})),
+          html.Center(html.H4(["2020"], style={'marginTop': 15}))
           ]),
         # Hidden divs: 
         # stores the simulated source vector y
@@ -61,132 +65,182 @@ layout_convdip_page =  html.Div([
         # Abstract
         dbc.Card(
             dbc.CardBody([
-                html.P('EEG and MEG are well-established non-invasive methods in neuroscientific research and clinical diagnostics. Both methods provide a high temporal but low spatial resolution of brain activity. In order to gain insight about the spatial dynamics of the EEG one has to solve the inverse problem, which means that more than one configuration of neural sources can evoke one and the same distribution of EEG activity on the scalp. A large number of approaches have been developed in the past to handle the inverse problem by creating more accurate and reliable solutions. Artificial neural networks have been previously used successfully to find either one or two dipoles sources. These approaches, however, have never solved the inverse problem in a distributed dipole model with more than two dipole sources. We present ConvDip, a novel convolutional neural network (CNN) architecture that solves the EEG inverse problem in a distributed dipole model based on simulated EEG data in a semi-supervised approach. We show that (1) ConvDip learned to produce inverse solutions from a single time point of EEG data and (2) outperforms state-of-the-art methods (eLORETA and LCMV beamforming) on all focused performance measures. (3) It is more flexible when dealing with varying number of sources, produces less ghost sources and misses less real sources than the comparison methods. (4) It produces plausible inverse solutions for real-world EEG recordings and needs less than 40 ms for a single forward pass. Our results qualify ConvDip as an efficient and easy-to-apply novel method for source localization in EEG an MEG data, with high relevance for clinical applications, e.g. in epileptology and real time applications.', className="card-text")
+                html.P('ConvDip is a convolutional neural network that finds solutions for the inverse problem of the EEG.', className="card-text"),
+                html.A("Link to the paper", href='https://www.biorxiv.org/content/10.1101/2020.04.09.033506v1', target="_blank")
             ]
-            ), style={'display': 'inline-block', 'width': 700, 'margin': '10px'}
+            ), style={'margin': '20px'}
         )
         ,
         # Image
-        html.Div([html.Img(src='/assets/architecture.png', height=300)], style={'display': 'inline-block', 'margin': '10px'}),
+        html.Div([html.Img(src='/assets/architecture.png', height=300)], style={'display': 'inline-block', 'margin': '20px'}),
 
-        dbc.Row(
+        dbc.Row([
             # Simulation Panel
+            dbc.Col(
             dbc.Card([
                 dbc.CardBody([
                     html.Div([
                         html.H4(["Advanced Options"], style={'marginTop':15}),
                         html.Br(),
-                        html.Label('Signal to Noise Ratio (in dB):'),
-                        dcc.Markdown('''*e.g. single value: 6 or range of values: 6, 9 (comma separated)*'''),
+                        html.H5('Signal to Noise Ratio (in dB):'),
+                        dcc.Markdown('''###### *e.g. single value: 6 or range of values: 6, 9*'''),
                         dbc.Input(id='noise_level_input', value=6),
                         html.Br(),
                         ]),
                     html.Div([
                         html.Br(),
-                        html.Label('Number of sources:'),
-                        dcc.Markdown('''*e.g. single value: 3 or range of values: 1, 5 (comma separated)*'''),
+                        html.H5('Number of sources:'),
+                        dcc.Markdown('''###### *e.g. single value: 3 or range of values: 1, 5*'''),
                         dbc.Input(id='number_of_sources_input', value=3),
                         html.Br(),
                     ]),
-                html.Div([
-                    html.Br(),
-                    html.Label('Size of sources (diameter of sphere in mm):'),
-                    dcc.Markdown('''*e.g. single value: 35 or range of values: 25, 35 (comma separated)*'''),
-                    dbc.Input(id='size_of_source_input', value=35),
-                    html.Br(),
-                    ]),
-                html.Div([
-                    html.Br(),
-                    dbc.Button('Simulate Sample', id='sim_button', color="primary"),
-                    dbc.Spinner(html.Div(id="loading-output-simulation")),
-                    ]),
-                html.Div([
-                    html.Div(id='output_container_button',
-                    children='Enter the values and press button')
-                    ]),
-                ])
-            ], style={"width": "200px"}), # end of settings card
-
-            # Simulation Figures
-            dbc.Card(
-                dbc.CardBody([
-                html.Br(),
-                dcc.Graph(
-                    id='sim_scalp_plot',
-                    config={
-                        'displayModeBar': False
-                        },
-                    figure={
-                        'data': [],
-                        }
-                    ),
+                    html.Div([
+                        html.Br(),
+                        html.H5('Diameter of sources (in mm):'),
+                        dcc.Markdown('''###### *e.g. single value: 35 or range of values: 25, 35*'''),
+                        dbc.Input(id='size_of_source_input', value=35),
+                        html.Br(),
+                        ]),
+                    html.Div([
+                        html.Br(),
+                        html.H5('Shape of sources:'),
+                        dcc.Markdown('''###### *If gaussian is selected the diameter of source becomes the full width at half maximum (FWHM)*'''),
+                        dbc.RadioItems(
+                            id='source_shape',
+                            options=[
+                                {'label': 'Flat', 'value': 'flat'},
+                                {'label': 'Gaussian', 'value': 'gaussian'},
+                            ],
+                            value='flat'
+                        ),
+                        html.Br()
+                        ]),
+                    html.Div([
+                        html.Br(),
+                        dbc.Button('Simulate Sample', id='sim_button', color="primary"),
+                        dbc.Spinner(html.Div(id="loading-output-simulation")),
+                        ]),
+                    html.Div([
+                        html.Div(id='output_container_button',
+                        children='Enter the values and press button')
+                        ]),
                     ])
-                ),
-            # Simulation Canvas 2
-            dbc.Card(
-                dbc.CardBody([
+                ], style={'margin': '20px'}), # end of settings card
+            width=3),
+
+            # Simulation: Scalp Map
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody([
+                    html.H4("Simulated brain-electric activity", className="card-title"),
                     html.Br(),
                     dcc.Graph(
-                        id="sim_source_plot",
-                        figure={
-                            "data": [],
+                        id='sim_source_plot',
+                        config={
+                            'displayModeBar': False
                             },
+                        figure={
+                            'data': [],
+                            },
+                        style={'width': 720},
                         ),
-                    ])
-                )
-    ),  # end of simulation row
+                    html.Br(),
+                    html.P("This plot depicts the cortical surface of the brain with its gyri and sulci. Colored in orange you see the simulated electric activity.", className="card-title"),
 
+                        ]),
+                    ),
+                    width=5),
+                
+            # Simulation Canvas 2
+            dbc.Col(
+                dbc.Card(
+                    dbc.CardBody([
+                        html.H4("Resulting Scalp map of the brain-electric activity", className="card-title"),
+                        html.Br(),
+                        dcc.Graph(
+                            id="sim_scalp_plot",
+                            figure={
+                                "data": [],
+                                },
+                            ),
+                        html.Br(),
+                        html.P("This is a low-resolution representation of the EEG (aerial view). This map is generated by projecting the simulated brain activity to the electrodes of a simulated set of EEG electrodes. This is possible through a forward model which describes the conductive and geometric properties of tissues of the head (e.g. brain, dura, skull). The task of an inverse solution is to infer the activity shown on the left (brain plot) from the scalp map shown.", className="card-title"),
+                        ]),
+                    ),
+                width=4)
+                
+            ]),  # end of simulation row
+        html.Br(),
+        html.Br(),
         # Prediction Group
-        dbc.CardGroup([
+        dbc.Row([
+            dbc.Col(
             dbc.Card(
                 dbc.CardBody([
                     dbc.Select(
                         id='model_selection',
                         options=[
-                            {'label': 'ConvDip Flexible: Trained on a wide range of SNR from 0 to 8 dB with 1 to 5 sources each between 25 and 35 mm spheric diameter.', 'value': 'flex'},
-                            {'label': 'ConvDip Paper Version: Trained on a narrow range of SNR from 6 to 9 dB with 1 to 5 sources each between 25 and 35 mm spheric diameter.', 'value': 'paper'},
-                            {'label': 'ConvDip for low SNR: Trained on a narrow range of SNR from 3 to 6 dB with 1 to 5 sources each between 25 and 35 mm spheric diameter.', 'value': 'lowsnr'},
+                            {'label': 'ConvDip for gaussian sources', 'value': 'gaussian'},
+                            {'label': 'ConvDip Flexible', 'value': 'flex'},
+                            {'label': 'ConvDip Paper', 'value': 'paper'},
+                            {'label': 'ConvDip for low SNR', 'value': 'lowsnr'},
                             {'label': 'eLORETA', 'value': 'eLORETA'},
                             {'label': 'LCMV Beamforming', 'value': 'lcmv'},
                             {'label': 'Minimum Norm Estimate', 'value': 'MNE'},
                             {'label': 'dSPM', 'value': 'dSPM'},
                         ],
-                        value='flex'
+                        value='gaussian'
                         ),
+                    html.Br(),
                     html.Br(),
                     dbc.Button('Predict Source', id='predict_button', color="primary"),
                     dbc.Spinner(html.Div(id="loading-output-prediction")),
+                    html.Br(),
+                    html.Div(id='inv_description'),
                     ])
-                ),
+                , style={'margin': '20px'}),
+                width=3),
         # Prediction Figures
+        dbc.Col(
         dbc.Card(
             dbc.CardBody([
+                html.H4("Predicted brain activity (i.e. the inverse solution)", className="card-title"),
                 html.Br(),
                 dcc.Graph(
-                    id='pred_scalp_plot',
+                    id='pred_source_plot',
                     config={
                         'displayModeBar': False
                         },
                     figure={
                         'data': [],
-                        }
-                    )
-                ])
+                        },
+                    style={'width': '700px'}
+                    ),
+                html.Br(),
+                html.P("This plot depicts the inverse solution. In the best case this brain activity depicts exactly the simulated activity of the figure above. However, the inverse problem does not have a unique solution, wherefore we can only expect rough approximations.", className="card-title"),
+                ]),
             ),
+            width=5),
 
 
         # Simulation Canvas 2
+        dbc.Col(
         dbc.Card(
             dbc.CardBody([
+                html.H4("Resulting Scalp Map of the prediction.", className="card-title"),
                 html.Br(),
                 dcc.Graph(
-                    id="pred_source_plot",
+                    id="pred_scalp_plot",
                     figure={
                         "data": [],
                         },
-                    )
+                    ),
+                html.Br(),
+                html.P("This is a low-resolution representation of the EEG (aerial view). This map is generated by projecting the predicted brain activity (figure to the left) to the electrodes of a simulated set of EEG electrodes. This is possible through a forward that describes the conductive and geometric properties of tissues of the head(e.g. brain, dura, skull).", className="card-title"),
+
                 ]),
-            ),
+        ),
+        width=4)
         ]) # End of Prediction Group
         ], className="subpage"), 
     ], className="page")
@@ -204,6 +258,7 @@ layout_convdip_page =  html.Div([
         [State('noise_level_input', 'value'), 
         State('number_of_sources_input', 'value'),
         State('size_of_source_input', 'value'),
+        State('source_shape', 'value'),
         State('sim_source_plot', 'figure')
         ])
 
@@ -211,13 +266,16 @@ def simulate_sample(*params):
     print('simulating')
     settings = [i for i in params]
     if np.any(settings==None):
+        print(f'FIRST CALL RETURNS NOTHING')
         return
-    print(settings[3])
-    print(settings[3])
-    print(settings[3])
-    print(settings[3])
+
+    snr = settings[1]
+    n_sources = settings[2]
+    size = settings[3]
+    source_shape = settings[4]
+
     start = time.time()
-    y, x_img, db_choice = simulate_source(settings[1], settings[2], settings[3], 1, leadfield, pos)
+    y, x_img, db_choice = simulate_source(snr, n_sources, size, 1, leadfield, pos, source_shape=source_shape)
     end_1 = time.time()
     fig_y, fig_x = make_fig_objects(y, x_img, tris, pos)
     end_2 = time.time()
@@ -226,6 +284,33 @@ def simulate_sample(*params):
 
     spinner_output = 'Simulation is Ready'
     return spinner_output, fig_x, fig_y, y, db_choice
+
+# Callback for the Inverse Solution Dropdown
+
+@app.callback(
+        Output('inv_description', 'children'),
+        [Input('model_selection', 'value')])
+
+def retrieve_description(value):
+    if value == 'flex':
+        desc = ['ConvDip trained on a large range of SNRs.', html.Br(), html.Br(), 'SNR: 0 to 8 dB.', html.Br(), 'Source diameters: 25-35', html.Br(), 'Number of Sources: 1 to 5']
+    elif value == 'gaussian':
+        desc = ['ConvDip trained on gaussian sources.', html.Br(), html.Br(), 'SNR: 3 to 8 dB.', html.Br(), 'Source FWHM: 25-35', html.Br(), 'Number of Sources: 1 to 5']
+    elif value == 'paper':
+        desc = 'ConvDip as described in the paper.', html.Br(), html.Br(), 'SNR: 6 to 9 dB.', html.Br(), 'Source diameters: 25-35', html.Br(), 'Number of Sources: 1 to 5'
+    elif value == 'lowsnr':
+        desc = 'ConvDip as trained on low SNR data.', html.Br(), html.Br(), 'SNR: 3 to 6 dB.', html.Br(), 'Source diameters: 25-35', html.Br(), 'Number of Sources: 1 to 5'
+    elif value == 'eLORETA':
+        desc = 'Exact low-resolution tomography, a commonly used inverse solution.', html.Br(), 'Developed by Pascual-Marqui (2007) and implemented in MNE python.', html.Br(), 'Tip:', html.Br(), 'eLORETA assumes large sources with gaussian distribution. Try to simulate a sample with gaussian shape and 50 mm FWHM and reconstruct it with eLORETA.'
+    elif value == 'lcmv':
+        desc = 'Linear constraint minimum variance (LCMV) beamformer, a commonly used inverse solution.', html.Br(), 'Developed by Van Veen et al. (1997) and implemented in MNE python.'
+    elif value == 'MNE':
+        desc = 'Minimum norm estimates (MNE), a commonly used inverse solution.', html.Br(), 'Developed by Hämäläinen & Ilmoniemi (1994) and implemented in MNE python.', html.Br(), 'Tip:', html.Br(), 'MNE produces large sources with gaussian distribution. Try to simulate a sample with gaussian shape and 50 mm FWHM and reconstruct it with MNE.'
+    elif value == 'dSPM':
+        desc = 'Dynamic statistical parametric mapping (dSPM).', html.Br(), 'Developed by Dale et al. (2000) and implemented in MNE python.', html.Br(), 'Tip:', html.Br(), 'dSPM produces large sources with gaussian distribution. Try to simulate a sample with gaussian shape and 50 mm FWHM and reconstruct it with dSPM.'
+    
+    return desc
+
 
 # Callback for the Predict button
 @app.callback(
@@ -263,6 +348,9 @@ def predict_sample(*params):
     if inputs[2] == 'paper':
         model = model_paper
         y, x_img = predict_source(data, leadfield, model)
+    elif inputs[2] == 'gaussian':
+        model = model_gaussian
+        y, x_img = predict_source(data, leadfield, model)
     elif inputs[2] == 'lowsnr':
         model = model_lowsnr
         y, x_img = predict_source(data, leadfield, model)
@@ -276,6 +364,6 @@ def predict_sample(*params):
     
 
     fig_y, fig_x = make_fig_objects(y, x_img, tris, pos)
-
+    
     spinner_output = 'Prediction ready!'
     return spinner_output, fig_x, fig_y

@@ -18,7 +18,7 @@ from joblib import Parallel, delayed
 import ast
 
 
-def simulate_source(snr, n_sources, size, n, leadfield, pos):
+def simulate_source(snr, n_sources, size, n, leadfield, pos, source_shape='flat'):
     ''' This function takes the simulation settings and simulates a pseudo-random sample in brain and sensor space.
     settings keys: ['snr', 'n_sources', 'size']
     '''
@@ -69,10 +69,17 @@ def simulate_source(snr, n_sources, size, n, leadfield, pos):
         # Smoothing and amplitude assignment
         
         d = {}
-        for i in range(src_centers.shape[0]):
-            dists = np.sqrt(np.sum((pos - pos[src_centers[i], :])**2, axis=1))
-            d[i] = np.where(dists<src_diams[i]/2)
-            y[s, d[i]] = src_amps[i]
+        if source_shape == 'gaussian':
+            print("hi")
+            for i in range(src_centers.shape[0]):
+                dists = np.sqrt(np.sum((pos - pos[src_centers[i], :])**2, axis=1))
+                y[s, :] += gaussian(dists, 0, src_diams[i]/2) * src_amps[i]
+
+        else:
+            for i in range(src_centers.shape[0]):
+                dists = np.sqrt(np.sum((pos - pos[src_centers[i], :])**2, axis=1))
+                d[i] = np.where(dists<src_diams[i]/2)
+                y[s, d[i]] = src_amps[i]
         
     # Noise
     if type(snr) == tuple or type(snr) == list: # pick noise in some range
@@ -85,12 +92,15 @@ def simulate_source(snr, n_sources, size, n, leadfield, pos):
 
     x_noise = source_to_ximg(y, leadfield, n, db_choice)
 
-
+    print('test')
     x_img = np.stack(Parallel(n_jobs = -1, backend = 'loky')(delayed(vec_to_sevelev_newlayout)(i) for i in x_noise))
 
     # x_img = np.stack([vec_to_sevelev_newlayout(i) for i in x_noise], axis=0)
         
     return np.squeeze(y), np.squeeze(x_img), db_choice
+
+def gaussian(x, mu, sig):
+    return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
 
 # @njit(nopython=True, fastmath=False, parallel=True)
 def source_to_ximg(y, leadfield, n, db_choice):
@@ -121,6 +131,8 @@ def make_fig_objects(y, x_img, tris, pos):
 
     fig_x = px.imshow(x_img)
     fig_y, _ = brain_plotly(y, tris, pos)
+
+    
     return fig_y, fig_x
 
 def load_model(pth):
@@ -138,20 +150,7 @@ def load_model(pth):
     return model
 
 def predict_source(x, leadfield, model):
-    # pth = os.path.abspath(os.path.join(os.path.dirname( __file__ ), '..', 'assets\\modeling\\'))
-    # load some stuff
-    ## Leadfield
-    # with open(pth+'\\leadfield.pkl', 'rb') as f:
-    #     leadfield = pkl.load(f)[0]
-
-    print('model#########model#########model#########')
-    print(model)
-    # Load Model
-    print('###LOADING MODEL###')
-    print('###LOADING MODEL###')
-    print('###LOADING MODEL###')
-
-    # model = load_model(pth)
+    ''' Predict source y from EEG input data x with model and calculate the forward projection x_img of y through the leadfield'''
 
     # Predict
     if len(x.shape) == 2:
@@ -414,7 +413,10 @@ def brain_plotly(y, tris, pos):
                             color_func=colors,
                             aspectratio=dict(x=1, y=1, z=1),
                             )
+    fig1['layout']['height'] = 650
+    fig1['layout']['width'] = 720
     return fig1, colors
+
 
 def split_data(x, y, key):
     ''' split input and target data based on key'''
